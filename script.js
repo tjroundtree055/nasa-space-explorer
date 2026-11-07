@@ -48,10 +48,15 @@ async function load(event) {
   $('loading').hidden = false; $('submit').disabled = true; $('gallery').setAttribute('aria-busy', 'true'); $('gallery').replaceChildren(); $('count').textContent = 'Exploring…';
   const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-    const params = new URLSearchParams({start_date:start, end_date:end});
-    const response = await fetch('https://science.nasa.gov/wp-json/wp/v2/apod-basic?' + params, {signal:controller.signal});
-    if (!response.ok) throw new Error(response.status === 429 ? 'NASA’s demo API limit was reached. Please try again later.' : 'NASA could not return this date range (HTTP ' + response.status + '). Please try again.');
-    const data = await response.json();
+    // The current NASA API exposes a stable YYMMDD endpoint for each day.
+    // Its collection endpoint does not honor the legacy range parameters.
+    const dates = Array.from({length:9}, (_, i) => iso(new Date(Date.parse(start) + i * DAY)));
+    const data = await Promise.all(dates.map(async date => {
+      const dayId = date.slice(2).replaceAll('-', '');
+      const response = await fetch('https://science.nasa.gov/wp-json/wp/v2/apod-basic/' + dayId, {signal:controller.signal});
+      if (!response.ok) throw new Error('NASA could not return ' + date + ' (HTTP ' + response.status + '). Please try again.');
+      return response.json();
+    }));
     if (!Array.isArray(data) || data.length !== 9) throw new Error('NASA did not return all 9 entries. Please try an earlier nine-day range.');
     data.sort((a,b) => a.date.localeCompare(b.date));
     if (data.some((item,i) => item.date !== iso(new Date(Date.parse(start) + i * DAY)))) throw new Error('NASA returned an incomplete date sequence. Please try again.');
