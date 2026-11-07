@@ -4,7 +4,7 @@ const DAY = 86400000;
 const facts = ['Sunlight takes about eight minutes to reach Earth.', 'Venus takes longer to rotate once than it takes to orbit the Sun.', 'Jupiter is the largest planet in our solar system.', 'The Milky Way is the galaxy that contains our solar system.', 'The Moon’s gravity causes most of Earth’s ocean tides.'];
 $('fact').textContent = facts[Math.floor(Math.random() * facts.length)];
 const iso = date => date.toISOString().slice(0, 10);
-const today = iso(new Date());
+const today = new Intl.DateTimeFormat('en-CA', {timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 for (const input of [$('start'), $('end')]) { input.min = '1995-06-16'; input.max = today; }
 $('end').value = today;
 $('start').value = iso(new Date(Date.parse(today) - 8 * DAY));
@@ -13,7 +13,7 @@ function safeUrl(value) { try { const url = new URL(value); return url.protocol 
 function image(url, title) { const img = document.createElement('img'); img.src = url; img.alt = title; img.loading = 'lazy'; img.addEventListener('error', () => { img.replaceWith(document.createTextNode('Preview unavailable — open details to view original media.')); }); return img; }
 function openDetails(item) {
   $('media').replaceChildren();
-  const url = safeUrl(item.hdurl) || safeUrl(item.url);
+  const url = item.media_type === 'image' ? safeUrl(item.hdurl) || safeUrl(item.url) : safeUrl(item.permalink) || safeUrl(item.url);
   if (item.media_type === 'image' && url) $('media').append(image(url, item.title));
   else { const message = document.createElement('p'); message.className = 'details'; message.textContent = 'This APOD entry is a video. Use the link below to watch it on the original provider.'; $('media').append(message); }
   $('modal-title').textContent = item.title;
@@ -30,7 +30,7 @@ function render(items) {
   const cards = items.map(item => {
     const card = document.createElement('button'); card.type = 'button'; card.className = 'card'; card.setAttribute('aria-label', 'View ' + item.title);
     const visual = document.createElement('span'); visual.className = 'visual';
-    const preview = safeUrl(item.media_type === 'image' ? item.url : item.thumbnail_url);
+    const preview = safeUrl(item.media_type === 'image' ? item.hdurl || item.url : item.thumbnail_url);
     if (preview) visual.append(image(preview, item.title));
     else { const label = document.createElement('span'); label.className = 'video-label'; label.textContent = item.media_type === 'video' ? '▶ Watch space video' : 'Open space discovery'; visual.append(label); }
     const text = document.createElement('span'); text.className = 'card-text';
@@ -48,14 +48,15 @@ async function load(event) {
   $('loading').hidden = false; $('submit').disabled = true; $('gallery').setAttribute('aria-busy', 'true'); $('gallery').replaceChildren(); $('count').textContent = 'Exploring…';
   const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-    const params = new URLSearchParams({api_key:'DEMO_KEY', start_date:start, end_date:end, thumbs:'true'});
-    const response = await fetch('https://api.nasa.gov/planetary/apod?' + params, {signal:controller.signal});
+    const params = new URLSearchParams({start_date:start, end_date:end});
+    const response = await fetch('https://science.nasa.gov/wp-json/wp/v2/apod-basic?' + params, {signal:controller.signal});
     if (!response.ok) throw new Error(response.status === 429 ? 'NASA’s demo API limit was reached. Please try again later.' : 'NASA could not return this date range (HTTP ' + response.status + '). Please try again.');
     const data = await response.json();
     if (!Array.isArray(data) || data.length !== 9) throw new Error('NASA did not return all 9 entries. Please try an earlier nine-day range.');
     data.sort((a,b) => a.date.localeCompare(b.date));
     if (data.some((item,i) => item.date !== iso(new Date(Date.parse(start) + i * DAY)))) throw new Error('NASA returned an incomplete date sequence. Please try again.');
-    render(data);
+    const plain = html => { const doc = new DOMParser().parseFromString(String(html || ''), 'text/html'); return doc.body.textContent.replace(/\s+/g, ' ').trim(); };
+    render(data.map(item => ({...item, title:plain(item.title), explanation:plain(item.explanation), copyright:plain(item.copyright || item.credit)})));
   } catch (error) { $('error').textContent = error.name === 'AbortError' ? 'The request timed out. Please try again.' : error instanceof TypeError ? 'Could not connect to NASA. Check your connection and try again.' : error.message; $('error').hidden = false; $('count').textContent = 'Try another search'; }
   finally { clearTimeout(timeout); $('loading').hidden = true; $('submit').disabled = false; $('gallery').setAttribute('aria-busy', 'false'); }
 }
