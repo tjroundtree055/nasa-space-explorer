@@ -8,6 +8,12 @@ const today = new Intl.DateTimeFormat('en-CA', {timeZone:'America/New_York',year
 for (const input of [$('start'), $('end')]) { input.min = '1995-06-16'; input.max = today; }
 $('end').value = today;
 $('start').value = iso(new Date(Date.parse(today) - 8 * DAY));
+try {
+  const saved = JSON.parse(localStorage.getItem('nasa-last-range'));
+  if (saved && saved.start >= '1995-06-16' && saved.end <= today && Date.parse(saved.end) - Date.parse(saved.start) === 8 * DAY) {
+    $('start').value = saved.start; $('end').value = saved.end;
+  }
+} catch { /* Storage may be unavailable in private browsing. */ }
 const formatDate = date => new Intl.DateTimeFormat('en-US', {month:'long', day:'numeric', year:'numeric', timeZone:'UTC'}).format(new Date(date + 'T12:00:00Z'));
 function safeUrl(value) { try { const url = new URL(value); return url.protocol === 'https:' ? url.href : null; } catch { return null; } }
 function image(url, title) { const img = document.createElement('img'); img.src = url; img.alt = title; img.loading = 'lazy'; img.addEventListener('error', () => { img.replaceWith(document.createTextNode('Preview unavailable — open details to view original media.')); }); return img; }
@@ -61,9 +67,11 @@ async function load(event) {
     data.sort((a,b) => a.date.localeCompare(b.date));
     if (data.some((item,i) => item.date !== iso(new Date(Date.parse(start) + i * DAY)))) throw new Error('NASA returned an incomplete date sequence. Please try again.');
     const plain = html => { const doc = new DOMParser().parseFromString(String(html || ''), 'text/html'); return doc.body.textContent.replace(/\s+/g, ' ').trim(); };
+    try { localStorage.setItem('nasa-last-range', JSON.stringify({start, end})); } catch {}
     render(data.map(item => ({...item, title:plain(item.title), explanation:plain(item.explanation), copyright:plain(item.copyright || item.credit)})));
   } catch (error) { $('error').textContent = error.name === 'AbortError' ? 'The request timed out. Please try again.' : error instanceof TypeError ? 'Could not connect to NASA. Check your connection and try again.' : error.message; $('error').hidden = false; $('count').textContent = 'Try another search'; }
   finally { clearTimeout(timeout); $('loading').hidden = true; $('submit').disabled = false; $('gallery').setAttribute('aria-busy', 'false'); }
 }
 $('search').addEventListener('submit', load);
-load();
+(window.pwaReady || Promise.resolve()).then(() => load());
+
